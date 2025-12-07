@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Linguistics Tree Studio V4</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        :root { --primary: #2563eb; --active: #dbeafe; --line-color: #000; }
+        body { margin: 0; height: 100vh; display: flex; font-family: 'Segoe UI', sans-serif; overflow: hidden; user-select: none; }
+        
+        /* Layout */
+        .workspace { flex: 1; display: flex; flex-direction: column; background: #fff; position: relative; }
+        .sidebar { width: 350px; background: #1e1e1e; color: #e5e5e5; display: flex; flex-direction: column; border-left: 1px solid #333; }
+        .toolbar { padding: 10px 20px; background: #f1f5f9; border-bottom: 1px solid #cbd5e1; display: flex; justify-content: space-between; align-items: center; }
+        .btn-action { background: var(--primary); color: white; border: none; padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; }
+
+        /* Canvas & SVG */
+        .canvas { flex: 1; overflow: auto; display: flex; justify-content: center; padding-top: 60px; position: relative; }
+        .svg-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+        
+        /* Arrow Styling */
+        path { fill: none; stroke: #000; stroke-width: 1.5; marker-end: url(#arrowhead); transition: d 0.1s; }
+        .arrow-handle { 
+            fill: white; stroke: #2563eb; stroke-width: 2; cursor: pointer; pointer-events: auto; 
+            transition: r 0.2s; z-index: 50;
+        }
+        .arrow-handle:hover { r: 6; stroke: #1d4ed8; }
+
+        /* Tree Lines (The "Old Style" you liked) */
+        .tree ul { display: flex; justify-content: center; padding-top: 20px; position: relative; margin: 0; padding-left: 0; }
+        .tree li { float: left; text-align: center; list-style-type: none; position: relative; padding: 20px 10px 0 10px; }
+        
+        /* The Connecting Lines */
+        .tree li::before, .tree li::after {
+            content: ''; position: absolute; top: 0; right: 50%;
+            border-top: 2px solid var(--line-color); /* Thicker, darker lines */
+            width: 50%; height: 20px; z-index: -1;
+        }
+        .tree li::after { right: auto; left: 50%; border-left: 2px solid var(--line-color); }
+        .tree li:only-child::after, .tree li:only-child::before { display: none; }
+        .tree li:only-child { padding-top: 0; }
+        .tree li:first-child::before, .tree li:last-child::after { border: 0 none; }
+        .tree li:last-child::before { border-right: 2px solid var(--line-color); border-radius: 0 5px 0 0; }
+        .tree li:first-child::after { border-radius: 5px 0 0 0; }
+
+        /* Nodes */
+        .node-container { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; }
+        .node-card {
+            background: white; border: 2px solid #333; padding: 5px 10px; border-radius: 6px;
+            min-width: 30px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .node-card:hover { border-color: var(--primary); }
+        .node-card.selected { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2); }
+        .node-card.linking { border-color: #10b981; border-style: dashed; }
+
+        /* Text Styling */
+        .node-text { 
+            font-family: 'Times New Roman', serif; font-size: 18px; border: none; outline: none; 
+            text-align: center; width: 100%; min-width: 20px; background: transparent; 
+        }
+        .node-text.bar { text-decoration: overline; }
+        .node-text.italic { font-style: italic; }
+
+        /* Action Menu */
+        .action-menu {
+            position: absolute; top: -50px; left: 50%; transform: translateX(-50%);
+            background: #1e293b; padding: 4px; border-radius: 6px; display: flex; gap: 4px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2); z-index: 100; animation: popUp 0.15s ease-out;
+        }
+        @keyframes popUp { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+        
+        .menu-btn { background: transparent; border: none; color: white; padding: 6px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; }
+        .menu-btn:hover { background: #334155; }
+        .menu-btn.active { background: var(--primary); color: white; } /* Highlight active state */
+        
+        /* Link Settings Slider */
+        .link-popover {
+            position: absolute; background: white; padding: 10px; border: 1px solid #ccc; border-radius: 6px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); z-index: 100; display: flex; flex-direction: column; gap: 5px;
+            width: 150px;
+        }
+        .link-popover label { font-size: 11px; color: #666; font-weight: bold; }
+        
+        /* Roof */
+        .roof-triangle { width: 0; height: 0; border-left: 25px solid transparent; border-right: 25px solid transparent; border-bottom: 35px solid #000; margin-top: 2px; }
+
+        /* Code View */
+        textarea.code-view { width: 100%; height: 100%; background: transparent; border: none; color: #d4d4d4; padding: 20px; font-family: monospace; resize: none; outline: none; }
+    </style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+    const { useState, useEffect } = React;
+    const uid = () => 'n' + Math.random().toString(36).substr(2, 6);
+
+    // Icons
+    const Icons = {
+        Plus: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>,
+        Trash: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>,
+        Triangle: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path></svg>,
+        Link: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>,
+        Bold: () => <span style={{fontWeight:'bold', fontSize:'14px'}}>B</span>,
+        Italic: () => <span style={{fontStyle:'italic', fontSize:'14px'}}>I</span>,
+        Bar: () => <span style={{textDecoration:'overline', fontSize:'14px'}}>A</span>,
+        Sub: () => <span style={{fontSize:'12px'}}>x₂</span>
+    };
+
+    // --- Component: Visual Node ---
+    const TreeNode = ({ node, actions, state }) => {
+        const isSelected = state.selectedId === node.id;
+        
+        return (
+            <li>
+                <div className="node-container">
+                    {/* Action Menu: Only appears on Click */}
+                    {isSelected && !state.linkSourceId && (
+                        <div className="action-menu" onClick={e => e.stopPropagation()}>
+                            <button className="menu-btn" title="Add Child" onClick={() => actions.addChild(node.id)}><Icons.Plus /></button>
+                            <button className="menu-btn" title="Movement Link" onClick={() => actions.startLink(node.id)}><Icons.Link /></button>
+                            <button className="menu-btn" title="Roof" onClick={() => actions.toggleRoof(node.id)}><Icons.Triangle /></button>
+                            <div style={{width:1, background:'#555', margin:'0 2px'}}></div>
+                            {/* Formatting Toggles */}
+                            <button className={`menu-btn ${node.hasBar ? 'active' : ''}`} title="Overbar" onClick={() => actions.updateNode(node.id, { hasBar: !node.hasBar })}><Icons.Bar /></button>
+                            <button className={`menu-btn ${node.isItalic ? 'active' : ''}`} title="Italic" onClick={() => actions.updateNode(node.id, { isItalic: !node.isItalic })}><Icons.Italic /></button>
+                             {/* Subscript Popover Trigger */}
+                             <div style={{position:'relative', display:'flex'}}>
+                                <button className="menu-btn" title="Subscript" onClick={() => actions.toggleSubInput(node.id)}><Icons.Sub /></button>
+                                {state.subInputId === node.id && (
+                                    <div style={{position:'absolute', top:'30px', left:0, background:'white', padding:5, borderRadius:4, border:'1px solid #ccc'}}>
+                                        <input autoFocus style={{width:30}} placeholder="i" value={node.subscript || ''} onChange={(e) => actions.updateNode(node.id, { subscript: e.target.value })} />
+                                    </div>
+                                )}
+                             </div>
+                            <div style={{width:1, background:'#555', margin:'0 2px'}}></div>
+                            <button className="menu-btn" style={{color:'#ef4444'}} onClick={() => actions.deleteNode(node.id)}><Icons.Trash /></button>
+                        </div>
+                    )}
+
+                    <div 
+                        id={node.id} 
+                        className={`node-card ${isSelected ? 'selected' : ''} ${state.linkSourceId === node.id ? 'linking' : ''}`}
+                        onClick={(e) => { e.stopPropagation(); actions.selectNode(node.id); }}
+                    >
+                        <div style={{display:'flex', alignItems:'baseline'}}>
+                             {!node.isRoof ? (
+                                <input 
+                                    className={`node-text ${node.hasBar ? 'bar' : ''} ${node.isItalic ? 'italic' : ''}`} 
+                                    value={node.label} onChange={(e) => actions.updateNode(node.id, { label: e.target.value })} 
+                                />
+                             ) : (
+                                <input className={`node-text ${node.hasBar ? 'bar' : ''}`} value={node.label} onChange={(e) => actions.updateNode(node.id, { label: e.target.value })} />
+                             )}
+                             {node.subscript && <span style={{fontSize:'10px', color:'#555'}}>{node.subscript}</span>}
+                        </div>
+                        
+                        {node.isRoof && (
+                            <>
+                                <div className="roof-triangle"></div>
+                                <input className="node-text" style={{fontStyle:'italic', fontSize:'14px', marginTop:'2px'}} value={node.roofContent||''} onChange={(e)=>actions.updateNode(node.id, {roofContent:e.target.value})} placeholder="..." />
+                            </>
+                        )}
+                    </div>
+                </div>
+                {node.children.length > 0 && !node.isRoof && (
+                    <ul>{node.children.map(child => <TreeNode key={child.id} node={child} actions={actions} state={state} />)}</ul>
+                )}
+            </li>
+        );
+    };
+
+    // --- Main App ---
+    const App = () => {
+        // State
+        const [tree, setTree] = useState({ id: uid(), label: 'TP', children: [{ id: uid(), label: 'VP', children: [] }] });
+        const [arrows, setArrows] = useState([]); // { id, from, to, angle: 90 }
+        const [selectedId, setSelectedId] = useState(null);
+        const [linkSourceId, setLinkSourceId] = useState(null);
+        const [subInputId, setSubInputId] = useState(null); // Which node has subscript input open
+        const [editingArrowId, setEditingArrowId] = useState(null); // Which arrow slider is open
+        const [arrowCoords, setArrowCoords] = useState([]);
+
+        // Actions
+        const traverse = (node, id, fn) => {
+            if (node.id === id) return fn(node);
+            return { ...node, children: node.children.map(ch => traverse(ch, id, fn)) };
+        };
+
+        const actions = {
+            selectNode: (id) => {
+                if (linkSourceId && linkSourceId !== id) {
+                    setArrows([...arrows, { id: uid(), from: linkSourceId, to: id, angle: 60 }]); // Default angle
+                    setLinkSourceId(null);
+                } else {
+                    setSelectedId(id);
+                    setSubInputId(null);
+                }
+            },
+            addChild: (id) => setTree(prev => traverse(prev, id, n => ({ ...n, children: [...n.children, { id: uid(), label: 'X', children: [] }] }))),
+            updateNode: (id, changes) => setTree(prev => traverse(prev, id, n => ({ ...n, ...changes }))),
+            toggleRoof: (id) => setTree(prev => traverse(prev, id, n => ({ ...n, isRoof: !n.isRoof, children: [] }))),
+            deleteNode: (id) => {
+                if(tree.id === id) return;
+                const del = (n) => ({ ...n, children: n.children.filter(c => c.id !== id).map(del) });
+                setTree(del(tree));
+                setArrows(prev => prev.filter(a => a.from !== id && a.to !== id));
+            },
+            startLink: (id) => { setLinkSourceId(id); setSelectedId(null); },
+            toggleSubInput: (id) => setSubInputId(subInputId === id ? null : id),
+            updateArrowAngle: (id, newAngle) => {
+                setArrows(prev => prev.map(a => a.id === id ? { ...a, angle: parseInt(newAngle) } : a));
+            },
+            deleteArrow: (id) => {
+                setArrows(prev => prev.filter(a => a.id !== id));
+                setEditingArrowId(null);
+            },
+            deselectAll: () => { setSelectedId(null); setLinkSourceId(null); setSubInputId(null); setEditingArrowId(null); }
+        };
+
+        // --- Logic: Arrows & Geometry ---
+        useEffect(() => {
+            const updateArrows = () => {
+                const newCoords = arrows.map(arrow => {
+                    const el1 = document.getElementById(arrow.from);
+                    const el2 = document.getElementById(arrow.to);
+                    if (!el1 || !el2) return null;
+                    const r1 = el1.getBoundingClientRect();
+                    const r2 = el2.getBoundingClientRect();
+                    const container = document.querySelector('.canvas').getBoundingClientRect();
+                    
+                    const x1 = r1.left + r1.width/2 - container.left + document.querySelector('.canvas').scrollLeft;
+                    const y1 = r1.top + r1.height/2 - container.top + document.querySelector('.canvas').scrollTop;
+                    const x2 = r2.left + r2.width/2 - container.left + document.querySelector('.canvas').scrollLeft;
+                    const y2 = r2.top + r2.height/2 - container.top + document.querySelector('.canvas').scrollTop;
+
+                    // Quadratic Bezier Control Point Logic based on Angle/Height
+                    // We simulate "Angle" by pushing the control point higher up
+                    const midX = (x1 + x2) / 2;
+                    const midY = Math.min(y1, y2) - (arrow.angle * 1.5); // Height based on angle value
+                    
+                    return { ...arrow, x1, y1, x2, y2, cx: midX, cy: midY };
+                }).filter(Boolean);
+                setArrowCoords(newCoords);
+            };
+            setTimeout(updateArrows, 50);
+            window.addEventListener('resize', updateArrows);
+            return () => window.removeEventListener('resize', updateArrows);
+        }, [tree, arrows, selectedId]);
+
+        // --- Logic: LaTeX ---
+        const generateCode = () => {
+            let names = {};
+            arrows.forEach(a => { names[a.from] = `n${a.from}`; names[a.to] = `n${a.to}`; });
+            
+            const fmt = (n) => {
+                let l = n.label;
+                if(n.hasBar) l = `\\bar{${l}}`;
+                if(n.isItalic) l = `\\textit{${l}}`;
+                if(n.subscript) l = `${l}_{${n.subscript}}`;
+                return l;
+            };
+
+            const toForest = (n) => {
+                let s = `[${fmt(n)}`;
+                let opts = [];
+                if(names[n.id]) opts.push(`name=${names[n.id]}`);
+                if(n.isRoof) opts.push('roof');
+                if(opts.length) s += `, ${opts.join(', ')}`;
+                
+                if(n.isRoof && n.roofContent) s += ` [\\textit{${n.roofContent}}]`;
+                else if(n.children.length) s += " " + n.children.map(toForest).join(" ");
+                s += "]";
+                return s;
+            };
+
+            const draws = arrows.map(a => 
+                // Using out/in angles to mimic the slider height
+                // Higher angle = Steeper curve
+                `\\draw[->, thick] (${names[a.from]}) to [out=${90 + (a.angle/2)}, in=${90 - (a.angle/2)}] (${names[a.to]});`
+            ).join("\n");
+
+            return `\\begin{forest}\n${toForest(tree)}\n${draws}\n\\end{forest}`;
+        };
+
+        return (
+            <div className="workspace">
+                <div className="toolbar">
+                    <div style={{fontWeight:'bold'}}>Linguistics Tree Studio V4</div>
+                    <button className="btn-action" onClick={() => navigator.clipboard.writeText(generateCode())}>Copy LaTeX</button>
+                </div>
+                
+                <div style={{display:'flex', flex:1, overflow:'hidden'}}>
+                    <div className="canvas" onClick={actions.deselectAll}>
+                        <svg className="svg-layer">
+                            <defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="black" /></marker></defs>
+                            {arrowCoords.map(a => (
+                                <React.Fragment key={a.id}>
+                                    <path d={`M ${a.x1} ${a.y1} Q ${a.cx} ${a.cy} ${a.x2} ${a.y2}`} />
+                                    {/* The Handle */}
+                                    <circle 
+                                        className="arrow-handle" cx={(a.x1 + 2*a.cx + a.x2)/4} cy={(a.y1 + 2*a.cy + a.y2)/4} r="4" 
+                                        onClick={(e) => { e.stopPropagation(); setEditingArrowId(a.id); }}
+                                    />
+                                    {/* Slider Popover */}
+                                    {editingArrowId === a.id && (
+                                        <foreignObject x={(a.x1 + 2*a.cx + a.x2)/4 + 10} y={(a.y1 + 2*a.cy + a.y2)/4} width="160" height="100">
+                                            <div className="link-popover" onClick={e => e.stopPropagation()}>
+                                                <label>Curve Height</label>
+                                                <input type="range" min="10" max="150" value={a.angle} onChange={(e) => actions.updateArrowAngle(a.id, e.target.value)} />
+                                                <button style={{color:'red', fontSize:'10px', cursor:'pointer'}} onClick={() => actions.deleteArrow(a.id)}>Remove Link</button>
+                                            </div>
+                                        </foreignObject>
+                                    )}
+                                </React.Fragment>
+                            ))}
+                        </svg>
+                        <div className="tree">
+                            <ul><TreeNode node={tree} actions={actions} state={{selectedId, linkSourceId, subInputId}} /></ul>
+                        </div>
+                    </div>
+                    
+                    <div className="sidebar">
+                        <textarea className="code-view" readOnly value={generateCode()} />
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+
+</script>
+</body>
+</html>
