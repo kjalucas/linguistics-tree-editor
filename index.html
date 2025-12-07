@@ -292,7 +292,17 @@
             <div className="workspace">
                 <div className="toolbar">
                     <div style={{fontWeight:'bold'}}>Linguistics Tree Studio V4</div>
-                    <button className="btn-action" onClick={() => navigator.clipboard.writeText(generateCode())}>Copy LaTeX</button>
+                    // Add this helper function inside the App component, before the return()
+    const sendToOverleaf = () => {
+        const code = generateCode();
+        // Send message to the parent window (Chrome Extension)
+        window.parent.postMessage({ type: "INSERT_LATEX", code: code }, "*");
+    };
+
+    // ... scroll down to the return() ...
+    
+    // Replace the old button with this:
+    <button className="btn-action" onClick={sendToOverleaf}>Insert into Overleaf</button>
                 </div>
                 
                 <div style={{display:'flex', flex:1, overflow:'hidden'}}>
@@ -339,3 +349,4 @@
 </script>
 </body>
 </html>
+
